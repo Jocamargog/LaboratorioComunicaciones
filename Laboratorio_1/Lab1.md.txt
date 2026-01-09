@@ -1,0 +1,61 @@
+# Laboratorio 1 – Reconocimiento del Espectro
+
+## Descripción
+
+Este laboratorio utiliza un receptor RTL-SDR para capturar muestras de radio en 106 MHz, calcular la densidad espectral de potencia y guardar la gráfica del espectro en un archivo de imagen PNG.[file:21]
+
+## Pseudocódigo
+
+INICIO
+
+    IMPORTAR librería RTL-SDR
+    IMPORTAR librería matplotlib.pyplot
+    IMPORTAR librería datetime
+
+    CREAR objeto SDR
+
+    ASIGNAR frecuencia_de_muestreo = 2.4 MHz en el SDR
+    GUARDAR Frecuencia_muestreo = frecuencia_de_muestreo
+
+    ASIGNAR frecuencia_central = 106 MHz en el SDR
+    GUARDAR Frecuencia_Central = frecuencia_central
+
+    CONFIGURAR ganancia del SDR en modo automático
+
+    CERRAR cualquier gráfica previa de matplotlib
+
+    CALCULAR NumeroDeMuestras = Frecuencia_muestreo / 1
+
+    LEER muestras desde el SDR usando NumeroDeMuestras
+    CERRAR el dispositivo SDR
+
+    IMPRIMIR en pantalla una porción del vector de muestras
+        (por ejemplo, desde el índice 200 hasta el 210)
+
+    CALCULAR y GRAFICAR la densidad espectral de potencia (PSD) de las muestras
+        USANDO:
+            NFFT = 2048
+            Frecuencia de muestreo para la gráfica = Frecuencia_muestreo / 1e6 (en MHz)
+            Frecuencia central para la gráfica = Frecuencia_Central / 1e6 (en MHz)
+            OPCIÓN scale_by_freq = verdadera
+
+    ESTABLECER título de la gráfica: "Espectro de Radio RTL-SDR"
+    ETIQUETAR eje X como "Frecuencia (MHz)"
+    ETIQUETAR eje Y como "Potencia (dB)"
+    ACTIVAR la cuadrícula de la gráfica
+    AJUSTAR automáticamente el diseño de la figura (tight_layout)
+
+    OBTENER timestamp actual en formato "YYYYMMDD_HHMMSS"
+
+    CONSTRUIR nombre de archivo:
+        filename = "Espectro_106_" + timestamp + ".png"
+
+    GUARDAR la figura actual en el archivo filename con resolución 300 dpi
+
+    IMPRIMIR mensaje de confirmación con el nombre del archivo guardado
+
+    MOSTRAR la gráfica en pantalla
+
+    LIBERAR memoria eliminando el vector de muestras
+
+FIN

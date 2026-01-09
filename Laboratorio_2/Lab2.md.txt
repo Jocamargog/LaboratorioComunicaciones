@@ -1,0 +1,172 @@
+# Laboratorio 2 – Demodulación FM Estéreo y Análisis de Ancho de Banda
+
+## Descripción
+
+Este laboratorio realiza la demodulación FM de una emisora estéreo usando un receptor RTL-SDR, extrae los canales izquierdo y derecho, reproduce el audio, muestra el espectrograma y la FFT en tiempo casi real, y compara el ancho de banda teórico obtenido por la regla de Carson con una estimación experimental del ancho de banda de la señal.[file:22]
+
+## Pseudocódigo
+
+INICIO
+
+    IMPORTAR librerías:
+        numpy, scipy.signal, hilbert, resample_poly,
+        sounddevice, matplotlib.pyplot, RtlSdr, fft, fftfreq
+
+    DEFINIR función fm_demod(iq, fs):
+        CALCULAR diferencia de fase entre muestras consecutivas:
+            phase_diff = ángulo( iq[1:] * conjugado( iq[:-1] ) )
+        CONVERTIR fase a frecuencia instantánea:
+            resultado = concatenar(0, phase_diff) * (fs / (2*pi))
+        RETORNAR resultado
+
+    DEFINIR función design_fir_lowpass(cutoff, fs, numtaps):
+        CREAR filtro FIR pasa-bajos con frecuencia de corte cutoff y fs
+        RETORNAR coeficientes del filtro
+
+    DEFINIR función bandpass_fir(f1, f2, fs, numtaps):
+        CREAR filtro FIR pasa-banda entre f1 y f2 con fs
+        RETORNAR coeficientes del filtro
+
+    DEFINIR función extract_stereo(demod, fs):
+        CREAR filtro pasa-bajos lpr con corte en 15 kHz
+        OBTENER componente L+R (LpR) filtrando demod con lpr
+
+        EXTRAER piloto de 19 kHz:
+            FILTRAR demod con filtro pasa-banda 18.8–19.2 kHz
+            OBTENER señal analítica con hilbert(pilot)
+            CALCULAR fase del piloto: pilot_phase = ángulo(analytic)
+
+        EXTRAER banda L−R (23–53 kHz):
+            FILTRAR demod con pasa-banda 23–53 kHz → lr_band
+            GENERAR portadora: carrier = cos(2 * pilot_phase)
+            MEZCLAR lr_band con carrier y FILTRAR con lpr → lr_low
+
+        REMUESTREAR L+R y L−R a 48 kHz aprox.:
+            LpR_48k = resample_poly(LpR, 1, 5)
+            LR_48k = resample_poly(lr_low, 1, 5)
+            fs_out = fs / 5
+
+        CALCULAR canales estéreo:
+            left  = 0.5 * (LpR_48k + LR_48k)
+            right = 0.5 * (LpR_48k - LR_48k)
+
+        FORMAR señal estéreo de dos columnas
+        NORMALIZAR amplitud dividiendo por el máximo absoluto
+        RETORNAR (stereo, fs_out)
+
+    DEFINIR función carson_bandwidth(fm=15 kHz, delta_f=75 kHz):
+        CALCULAR BW = 2 * (delta_f + fm)
+        RETORNAR BW
+
+    DEFINIR función estimate_bandwidth(signal, fs, umbral_dB=-20):
+        OBTENER longitud N de la señal
+        CALCULAR vector de frecuencias con fftfreq(N, 1/fs)
+        CALCULAR espectro = |FFT(signal)|
+        NORMALIZAR espectro en dB respecto al máximo
+        QUEDARSE solo con mitad positiva de espectro y frecuencias
+
+        CREAR máscara de puntos donde espectro_dB > umbral_dB
+        SI existe algún punto que cumpla la máscara:
+            ancho = frecuencia_máxima_en_máscara - frecuencia_mínima_en_máscara
+        EN CASO CONTRARIO:
+            ancho = 0
+
+        RETORNAR ancho
+
+    DEFINIR función update_spectrogram(ax, demod, fs):
+        LIMPIAR eje ax
+        GRAFICAR espectrograma de demod (NFFT=1024, noverlap=512)
+        LIMITAR eje Y a 0–60000 Hz
+        PONER título: "Espectrograma en vivo"
+        ETIQUETAR ejes (tiempo y frecuencia)
+        ACTUALIZAR figura con una pequeña pausa
+
+    DEFINIR función update_fft(ax, demod, fs):
+        LIMPIAR eje ax
+        CALCULAR densidad espectral Pxx con método de Welch
+        GRAFICAR Pxx en escala semilogarítmica frente a frecuencia f
+        LIMITAR eje X a 0–60000 Hz
+        PONER título: "FFT (Densidad espectral)"
+        ETIQUETAR ejes
+
+        MARCAR frecuencias relevantes con líneas verticales:
+            15 kHz (L+R), 19 kHz (piloto),
+            23 kHz, 38 kHz (L−R), 53 kHz, 57 kHz (RDS)
+        AÑADIR etiquetas de texto en las marcas importantes
+        ACTUALIZAR figura con una pequeña pausa
+
+    DEFINIR función plot_fft_components(demod, fs, block_idx):
+        CALCULAR densidad espectral Pxx con Welch
+        CREAR figura con 4 subgráficos (2x2) y título general
+            "Análisis de Componentes FM - Bloque block_idx"
+
+        SUBGRÁFICO 1 (0–16 kHz): L+R (Mono)
+        SUBGRÁFICO 2 (18–20 kHz): Piloto 19 kHz
+        SUBGRÁFICO 3 (23–53 kHz): L−R (Estéreo)
+        SUBGRÁFICO 4 (55–59 kHz): RDS (57 kHz)
+        ACTIVAR rejilla en todos
+        AJUSTAR diseño y MOSTRAR figura
+
+    # PARÁMETROS PRINCIPALES
+
+    DEFINIR fs = 240000              # Frecuencia de muestreo IQ
+    DEFINIR fc = 97.9 MHz            # Frecuencia central FM
+    DEFINIR block_size = 240000      # Muestras por bloque (~1 s)
+    DEFINIR num_blocks = 5           # Número de bloques a capturar
+
+    CREAR objeto SDR
+    CONFIGURAR sdr.sample_rate = fs
+    CONFIGURAR sdr.center_freq = fc
+    CONFIGURAR sdr.gain = automático
+
+    ACTIVAR modo interactivo de matplotlib
+
+    CREAR figura fig_spec y eje ax_spec para espectrograma
+    PONER título general: "Canvas 1 - Espectrograma"
+
+    CREAR figura fig_fft y eje ax_fft para FFT
+    PONER título general: "Canvas 2 - FFT y Componentes"
+
+    IMPRIMIR mensaje de inicio de captura
+
+    INICIAR bloque try:
+
+        PARA i desde 0 hasta num_blocks - 1 HACER:
+
+            LEER iq = sdr.read_samples(block_size)
+
+            APLICAR demodulación FM:
+                demod = fm_demod(iq, fs)
+
+            EXTRAER audio estéreo:
+                (stereo, fs_out) = extract_stereo(demod, fs)
+
+            REPRODUCIR audio estéreo con sounddevice a fs_out (no bloqueante)
+
+            ACTUALIZAR espectrograma con update_spectrogram(ax_spec, demod, fs)
+            ACTUALIZAR FFT con update_fft(ax_fft, demod, fs)
+
+            MOSTRAR análisis detallado de componentes:
+                plot_fft_components(demod, fs, block_idx = i+1)
+
+            CALCULAR ancho de banda teórico (Carson):
+                bw_carson = carson_bandwidth()
+
+            ESTIMAR ancho de banda real a partir de demod:
+                bw_real = estimate_bandwidth(demod, fs)
+
+            IMPRIMIR:
+                "Bloque i+1: Análisis de ancho de banda"
+                "Carson (teórico) en kHz"
+                "Estimado (real) en kHz"
+                "Diferencia en kHz"
+
+    EN finally:
+        DETENER reproducción de audio
+        CERRAR SDR
+        DESACTIVAR modo interactivo de matplotlib
+        MOSTRAR cualquier figura pendiente
+
+    IMPRIMIR mensaje de fin de captura
+
+FIN
